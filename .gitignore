@@ -1,0 +1,27 @@
+# Node dependencies
+node_modules/
+dist/
+.env
+
+# Python virtual environment
+backend/venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local database and instances
+backend/instance/
+*.db
+
+# Generated audio and temporary files
+backend/static/audio/*.mp3
+backend/static/exports/*
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

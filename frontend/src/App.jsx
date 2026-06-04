@@ -25,6 +25,7 @@ export default function App() {
   const [history,       setHistory]     = useState([])
   const [audioSrc,      setAudioSrc]    = useState(null)
   const [loading,       setLoading]     = useState(false)
+  const [uploading,     setUploading]   = useState(false)
   const [status,        setStatus]      = useState('idle')
   const [toast,         setToast]       = useState(null)
   const [stats,         setStats]       = useState({ gestures: 0, words: 0 })
@@ -46,8 +47,8 @@ export default function App() {
   const stableLabelRef  = useRef(null)
   const stableCountRef  = useRef(0)
   const lastAcceptRef   = useRef(0)
-  const STABLE_FRAMES   = 5
-  const COOLDOWN_MS     = 1200
+  const STABLE_FRAMES   = 2
+  const COOLDOWN_MS     = 600
   const transcriptTimer  = useRef(null)
   
   const trainingModeRef  = useRef(false)
@@ -126,21 +127,71 @@ export default function App() {
       setHandVisible(true)
       const landmarks = results.multiHandLandmarks[0]
 
-      // Draw skeleton skeleton on canvas
+      // Draw high-tech skeleton and bounding box on canvas
       if (window.drawConnectors && window.HAND_CONNECTIONS) {
+        // Calculate bounding box boundaries
+        let minX = 1.0, maxX = 0.0, minY = 1.0, maxY = 0.0;
+        landmarks.forEach(lm => {
+          if (lm.x < minX) minX = lm.x;
+          if (lm.x > maxX) maxX = lm.x;
+          if (lm.y < minY) minY = lm.y;
+          if (lm.y > maxY) maxY = lm.y;
+        });
+
+        // Convert normalized coordinates to actual canvas pixels
+        const pad = 20;
+        const boxX = Math.max(0, minX * canvas.width - pad);
+        const boxY = Math.max(0, minY * canvas.height - pad);
+        const boxW = Math.min(canvas.width, (maxX - minX) * canvas.width + pad * 2);
+        const boxH = Math.min(canvas.height, (maxY - minY) * canvas.height + pad * 2);
+
+        // Draw professional neon bounding box
+        ctx.strokeStyle = '#06B6D4';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+        // Draw text label tab
+        ctx.fillStyle = '#06B6D4';
+        ctx.fillRect(boxX, boxY - 26, Math.max(140, boxW * 0.5), 26);
+
+        // Save context and flip horizontally for text to prevent mirroring
+        ctx.save();
+        ctx.translate(boxX + 8, boxY - 8);
+        ctx.scale(-1, 1); // Flip back horizontally because CSS mirrors the canvas
+        ctx.fillStyle = '#1E293B';
+        ctx.font = 'bold 12px var(--font-display)';
+        const labelTxt = lastLabel ? `HAND: ${lastLabel} (${(confidence*100).toFixed(0)}%)` : 'DETECTING HAND...';
+        // Measure text to align it properly when mirrored
+        const textWidth = ctx.measureText(labelTxt).width;
+        ctx.fillText(labelTxt, -textWidth, 0);
+        ctx.restore();
+
+        // Draw connections with neon cyber line color
         window.drawConnectors(ctx, landmarks, window.HAND_CONNECTIONS,
-          { color: '#06B6D4', lineWidth: 3 })
+          { color: 'rgba(6, 182, 212, 0.9)', lineWidth: 3 });
+
+        // Draw joint points with high-tech red dots
         window.drawLandmarks(ctx, landmarks,
-          { color: '#F43F5E', lineWidth: 1, radius: 4 })
+          { color: '#F43F5E', lineWidth: 1, radius: 4 });
       }
 
       // ── Custom webcam collection (runs instead of regular recognition) ──
       if (trainingModeRef.current && collectingRef.current) {
         const flat = landmarks.flatMap(lm => [lm.x, lm.y, lm.z])
         const wx = flat[0], wy = flat[1], wz = flat[2]
-        const norm = []
-        for (let i = 0; i < flat.length; i += 3)
-          norm.push(flat[i]-wx, flat[i+1]-wy, flat[i+2]-wz)
+        
+        const relative = []
+        for (let i = 0; i < flat.length; i += 3) {
+          relative.push(flat[i] - wx, flat[i+1] - wy, flat[i+2] - wz)
+        }
+
+        let maxVal = 0.0
+        relative.forEach(val => {
+          const abs = Math.abs(val)
+          if (abs > maxVal) maxVal = abs
+        })
+
+        const norm = relative.map(val => (maxVal > 0 ? val / maxVal : 0.0))
           
         fetch('/api/training/collect', {
           method:'POST', headers:{'Content-Type':'application/json'},
@@ -167,61 +218,199 @@ export default function App() {
         }
       }
 
-      // ── Regular recognition ────────────────────────────────────────────────
+      // ── Regular recognition (Throttled to max 10 FPS to eliminate Flask lag) ──
+      const now = Date.now()
       if (!trainingModeRef.current && activeRef.current && sessionIdRef.current && !sendingRef.current) {
-        sendingRef.current = true
-        try {
-          const flat = landmarks.flatMap(lm => [lm.x, lm.y, lm.z])
-          const wx = flat[0], wy = flat[1], wz = flat[2]
-          const normalized = []
-          for (let i = 0; i < flat.length; i += 3) {
-            normalized.push(flat[i]-wx, flat[i+1]-wy, flat[i+2]-wz)
-          }
+        if (!window.lastSentTime) window.lastSentTime = 0
+        
+        // Only send a request if at least 100ms has passed since the last request
+        if (now - window.lastSentTime > 100) {
+          window.lastSentTime = now
+          sendingRef.current = true
+          try {
+            const flat = landmarks.flatMap(lm => [lm.x, lm.y, lm.z])
+            const wx = flat[0], wy = flat[1], wz = flat[2]
+            
+            // Subtract wrist coordinate to center the hand
+            const relative = []
+            for (let i = 0; i < flat.length; i += 3) {
+              relative.push(flat[i] - wx, flat[i+1] - wy, flat[i+2] - wz)
+            }
 
-          const result = await recognizeFromLandmarks(normalized, sessionIdRef.current)
+            // Find absolute max value to scale everything between -1.0 and 1.0 (Unit scale normalization)
+            let maxVal = 0.0
+            relative.forEach(val => {
+              const abs = Math.abs(val)
+              if (abs > maxVal) maxVal = abs
+            })
 
-          if (result && result.label) {
-            const now = Date.now()
-            setConfidence(result.confidence)
-            setLastLabel(result.label)
+            // Normalize coordinates by scale
+            const normalized = relative.map(val => (maxVal > 0 ? val / maxVal : 0.0))
 
-            if (result.accepted) {
-              // stable-frame check
-              if (result.label === stableLabelRef.current) {
-                stableCountRef.current++
-              } else {
-                stableLabelRef.current = result.label
-                stableCountRef.current = 1
-              }
+            const result = await recognizeFromLandmarks(normalized, sessionIdRef.current)
 
-              if (stableCountRef.current >= STABLE_FRAMES &&
-                  now - lastAcceptRef.current >= COOLDOWN_MS) {
-                lastAcceptRef.current  = now
-                stableCountRef.current = 0
+            if (result && result.label) {
+              setConfidence(result.confidence)
+              setLastLabel(result.label)
 
-                setText(prev => {
-                  let next = prev
-                  if      (result.label === 'SPACE')  next = prev + ' '
-                  else if (result.label === 'DELETE') next = prev.slice(0, -1)
-                  else                                next = prev + result.label
-                  setStats(s => ({ gestures: s.gestures+1, words: next.trim().split(/\s+/).filter(Boolean).length }))
-                  return next
-                })
-                setHistory(prev => [...prev, {
-                  label: result.label, confidence: result.confidence,
-                  time: new Date().toLocaleTimeString()
-                }])
+              if (result.accepted) {
+                // stable-frame check
+                if (result.label === stableLabelRef.current) {
+                  stableCountRef.current++
+                } else {
+                  stableLabelRef.current = result.label
+                  stableCountRef.current = 1
+                }
+
+                if (stableCountRef.current >= STABLE_FRAMES &&
+                    now - lastAcceptRef.current >= COOLDOWN_MS) {
+                  lastAcceptRef.current  = now
+                  stableCountRef.current = 0
+
+                  // ── SENTENCE MAPPER RULES ──
+                  const sentenceMap = {
+                    'H': 'Hi! ',
+                    'W': 'Hello, welcome! ',
+                    'M': 'Good morning! ',
+                    'L': 'I love you! ',
+                    'T': 'Thank you! ',
+                    'Y': 'Yes ',
+                    'N': 'No '
+                  };
+
+                  setText(prev => {
+                    let next = prev
+                    if (result.label === 'SPACE') {
+                      next = prev + ' '
+                    } else if (result.label === 'DELETE') {
+                      next = prev.slice(0, -1)
+                    } else {
+                      // Check if it matches a shortcut key for a sentence expansion
+                      if (sentenceMap[result.label]) {
+                        next = prev + sentenceMap[result.label]
+                      } else {
+                        next = prev + result.label
+                      }
+                    }
+                    setStats(s => ({ gestures: s.gestures+1, words: next.trim().split(/\s+/).filter(Boolean).length }))
+                    return next
+                  })
+                  setHistory(prev => [...prev, {
+                    label: result.label, confidence: result.confidence,
+                    time: new Date().toLocaleTimeString()
+                  }])
+                }
               }
             }
-          }
-        } catch { /* ignore */ }
-        finally { sendingRef.current = false }
+          } catch { /* ignore */ }
+          finally { sendingRef.current = false }
+        }
       }
     } else {
       setHandVisible(false)
     }
-    ctx.restore()
   }, [])
+
+  // ── process static uploaded image inside browser MediaPipe ────────────────
+  const processUploadedFile = useCallback((file) => {
+    if (!handsRef.current) {
+      showToast('MediaPipe not initialized yet!', 'red');
+      return;
+    }
+    
+    // Set visual preview
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      window.uploadedImagePreview = event.target.result;
+      setStats(s => ({ ...s })); // force render preview
+
+      // Load image object to draw on hidden canvas
+      const img = new Image();
+      img.onload = async () => {
+        // Create offscreen canvas to process image
+        const offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas.width = img.width;
+        offscreenCanvas.height = img.height;
+        const oCtx = offscreenCanvas.getContext('2d');
+        oCtx.drawImage(img, 0, 0);
+
+        setUploading(true);
+        
+        // Listen once to MediaPipe results
+        const originalOnResults = handsRef.current.onResults;
+        
+        handsRef.current.onResults(async (results) => {
+          // Restore original callback immediately
+          handsRef.current.onResults(originalOnResults);
+          
+          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+            const flat = landmarks.flatMap(lm => [lm.x, lm.y, lm.z]);
+            const wx = flat[0], wy = flat[1], wz = flat[2];
+            
+            const relative = [];
+            for (let i = 0; i < flat.length; i += 3) {
+              relative.push(flat[i] - wx, flat[i+1] - wy, flat[i+2] - wz);
+            }
+
+            let maxVal = 0.0;
+            relative.forEach(val => {
+              const abs = Math.abs(val);
+              if (abs > maxVal) maxVal = abs;
+            });
+
+            const normalized = relative.map(val => (maxVal > 0 ? val / maxVal : 0.0));
+
+            try {
+              // Send landmarks directly to classification endpoint
+              const res = await recognizeFromLandmarks(normalized, sessionIdRef.current || 99999);
+              if (res && res.label) {
+                showToast(`Detected: ${res.label} (${(res.confidence * 100).toFixed(0)}%)`, 'green');
+                
+                const sentenceMap = {
+                  'H': 'Hi! ', 'W': 'Hello, welcome! ', 'M': 'Good morning! ',
+                  'L': 'I love you! ', 'T': 'Thank you! ', 'Y': 'Yes ', 'N': 'No '
+                };
+
+                setLastLabel(res.label);
+                setConfidence(res.confidence);
+                setText(prev => {
+                  let next = prev;
+                  if (sentenceMap[res.label]) {
+                    next = prev + sentenceMap[res.label];
+                  } else {
+                    next = prev + res.label;
+                  }
+                  return next;
+                });
+              } else {
+                showToast('Failed to classify gesture.', 'red');
+              }
+            } catch {
+              showToast('Backend connection error.', 'red');
+            } finally {
+              setUploading(false);
+            }
+          } else {
+            showToast('No hand detected in the uploaded image!', 'amber');
+            setUploading(false);
+          }
+        });
+
+        // Send to local MediaPipe process thread
+        try {
+          await handsRef.current.send({ image: offscreenCanvas });
+        } catch (err) {
+          console.error(err);
+          handsRef.current.onResults(originalOnResults);
+          showToast('MediaPipe failed to process frame.', 'red');
+          setUploading(false);
+        }
+      };
+      img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
   // ── start/stop camera ────────────────────────────────────────────────────
   const startCamera = () => {
@@ -274,6 +463,7 @@ export default function App() {
 
   // ── custom collector training data collection ────────────────────────────
   const startTraining = () => {
+    setActive(true)
     if (!cameraRef.current) startCamera()
     trainingModeRef.current = true
     trainingIdxRef.current  = 0
@@ -391,6 +581,7 @@ export default function App() {
       }}>
         {[
           { id: 'live', name: '🎥 Live Recognizer' },
+          { id: 'upload', name: '📤 Upload & Translate Files' },
           { id: 'processor', name: '🔀 Dataset Processor' },
           { id: 'history', name: '📂 Session Logs & Exports' },
           { id: 'collector', name: '🧠 Custom Collector' }
@@ -406,9 +597,7 @@ export default function App() {
               borderRadius: 8
             }}
             onClick={() => {
-              if (active && activeTab === 'live' && t.id !== 'live') {
-                handleStop();
-              }
+              handleStop();
               setActiveTab(t.id);
             }}
           >
@@ -423,8 +612,8 @@ export default function App() {
           padding:'10px 28px', display:'flex', gap:40 }}>
           {[
             ['Gestures', stats.gestures],
-            ['Words', stats.words],
-            ['Characters', text.length],
+            ['Joints Tracked', '21 Landmarks'],
+            ['Features Used', '63 (X,Y,Z) Coordinates'],
             ['Session ID', sessionId ? `#${sessionId}` : '—']
           ].map(([l, v]) => (
             <div key={l} style={{ display:'flex', gap:10, alignItems:'center' }}>
@@ -565,6 +754,123 @@ export default function App() {
               </div>
 
               <SessionHistory history={history} />
+            </div>
+          </div>
+        )}
+
+        {/* UPLOAD & TRANSLATE FILES TAB */}
+        {activeTab === 'upload' && (
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 340px', gap:24 }}>
+            {/* LEFT COLUMN: drag and drop card */}
+            <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--neon-cyan)' }}>
+                  📤 Translate Image File
+                </h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.5 }}>
+                  Select or drag a static sign language image (e.g. JPG, PNG) containing a hand gesture. 
+                  The server-side MediaPipe model will process the landmarks, scale the features, and predict the output.
+                </p>
+
+                <div 
+                  style={{
+                    border: '2px dashed var(--border-glass)',
+                    borderRadius: 12,
+                    padding: '30px 20px',
+                    textAlign: 'center',
+                    background: 'rgba(255,255,255,0.01)',
+                    cursor: 'pointer',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    minHeight: '220px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.2s'
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                      const file = e.dataTransfer.files[0];
+                      processUploadedFile(file);
+                    }
+                  }}
+                  onClick={() => document.getElementById('file-upload-input').click()}
+                >
+                  <input 
+                    type="file" 
+                    id="file-upload-input" 
+                    style={{ display: 'none' }} 
+                    accept="image/*"
+                    onChange={async (e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        const file = e.target.files[0];
+                        processUploadedFile(file);
+                      }
+                    }}
+                  />
+                  {uploading ? (
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ 
+                        width: 40, height: 40, borderRadius: '50%', 
+                        border: '3px solid rgba(255,255,255,0.1)', 
+                        borderTopColor: 'var(--neon-cyan)', 
+                        animation: 'spin 1s infinite linear', 
+                        margin: '0 auto 12px' 
+                      }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--neon-cyan)' }}>AI Model analyzing gesture...</span>
+                    </div>
+                  ) : window.uploadedImagePreview ? (
+                    <img 
+                      src={window.uploadedImagePreview} 
+                      alt="Uploaded Preview" 
+                      style={{ 
+                        maxHeight: '160px', 
+                        borderRadius: '8px', 
+                        border: '1px solid var(--border-glass)',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.5)'
+                      }} 
+                    />
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 44, display: 'block', marginBottom: 12 }}>📤</span>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Click to select or drag image file here</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginTop: 6 }}>Supports JPG, PNG, WEBP files</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <SubtitleDisplay text={text} lastLabel={lastLabel} confidence={confidence} accepted={true} />
+              <AudioPlayer src={audioSrc} />
+            </div>
+
+            {/* RIGHT COLUMN: operations */}
+            <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+              <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <h3 style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 15 }}>🎛️ Operations</h3>
+                
+                <button className="primary" onClick={handleSpeak} disabled={!text.trim() || loading} style={{ width: '100%' }}>
+                  🔊 Speak Translation
+                </button>
+                <button className="secondary" onClick={handleClear} style={{ width: '100%' }}>
+                  ✕ Clear Text
+                </button>
+
+                <div style={{ borderTop:'1px solid var(--border-glass)', paddingTop:14 }}>
+                  <p style={{ fontSize:11, color:'var(--text-muted)', marginBottom:10, fontWeight:700 }}>EXPORT TRANSCRIPT</p>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button className="secondary" onClick={handleExportPDF} disabled={!text.trim() || loading} style={{ flex: 1 }}>
+                      📄 PDF Report
+                    </button>
+                    <button className="secondary" onClick={handleExportWord} disabled={!text.trim() || loading} style={{ flex: 1 }}>
+                      📝 Word Doc
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}

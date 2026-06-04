@@ -13,6 +13,7 @@ from datetime import datetime
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"]  = "3"
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
 
 from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
@@ -277,4 +278,4 @@ def trigger_training():
 if __name__ == "__main__":
     os.makedirs("static/audio",   exist_ok=True)
     os.makedirs("static/exports", exist_ok=True)
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False, threaded=True)
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False, threaded=False)

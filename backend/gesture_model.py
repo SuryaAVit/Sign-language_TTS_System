@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 
-CONFIDENCE_THRESHOLD = 0.75
+CONFIDENCE_THRESHOLD = 0.85
 
 # Default label map A-Z + SPACE + DELETE
 DEFAULT_LABEL_MAP = {i: chr(65+i) for i in range(26)}

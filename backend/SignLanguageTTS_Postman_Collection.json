@@ -1,0 +1,294 @@
+{
+  "info": {
+    "name": "Sign Language TTS System — API Tests",
+    "_postman_id": "sign-lang-tts-v1",
+    "description": "Complete API test collection for the Sign Language to Text & Audio Conversion System. Import this into Postman and run the full collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "TC-01 Health Check",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Status is ok', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.status).to.eql('ok');",
+              "});",
+              "pm.test('Response time < 500ms', () => pm.expect(pm.response.responseTime).to.be.below(500));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/health",
+        "description": "Verify the server is running and model status is reported."
+      }
+    },
+    {
+      "name": "TC-02 Start Session",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has session_id', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('session_id');",
+              "  pm.collectionVariables.set('session_id', body.session_id);",
+              "});",
+              "pm.test('Has session_token', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('session_token');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{}"},
+        "url": "{{base_url}}/api/session/start",
+        "description": "Start a new recognition session."
+      }
+    },
+    {
+      "name": "TC-04 Classify Gesture — Valid 63 Landmarks",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has accepted field', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('accepted');",
+              "});",
+              "pm.test('Has confidence field', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('confidence');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"landmarks\": [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55,0.56,0.57,0.58,0.59,0.60,0.61,0.62,0.63], \"session_id\": {{session_id}}}"
+        },
+        "url": "{{base_url}}/api/gesture/classify",
+        "description": "Send 63 landmark floats to classify a gesture."
+      }
+    },
+    {
+      "name": "TC-05 Classify Gesture — Wrong Landmark Count (10)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('accepted is false for wrong count', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.accepted).to.be.false;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\"landmarks\": [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0], \"session_id\": {{session_id}}}"},
+        "url": "{{base_url}}/api/gesture/classify",
+        "description": "Invalid input — only 10 landmarks provided instead of 63."
+      }
+    },
+    {
+      "name": "TC-06 Classify Gesture — Empty Body",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('accepted is false for empty body', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.accepted).to.be.false;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{}"},
+        "url": "{{base_url}}/api/gesture/classify"
+      }
+    },
+    {
+      "name": "TC-07 Update Transcript",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Message is updated', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.message).to.eql('updated');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\"session_id\": {{session_id}}, \"text\": \"Hello World Sign Language\"}"},
+        "url": "{{base_url}}/api/transcript/update"
+      }
+    },
+    {
+      "name": "TC-08 Get Transcript",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has text field', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('text');",
+              "});",
+              "pm.test('Has word_count', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('word_count');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/transcript/{{session_id}}"
+      }
+    },
+    {
+      "name": "TC-10 TTS — Empty Text (Error Case)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 400', () => pm.response.to.have.status(400));",
+              "pm.test('Error field present', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('error');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\"text\": \"\"}"},
+        "url": "{{base_url}}/api/tts"
+      }
+    },
+    {
+      "name": "TC-11 Session History",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Has history array', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body).to.have.property('history');",
+              "  pm.expect(body.history).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/api/session/{{session_id}}/history"
+      }
+    },
+    {
+      "name": "TC-12 Training Collect — Valid Sample",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('ok is true', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.ok).to.be.true;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"label\": \"A\", \"landmarks\": [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.10,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.20,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.30,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.40,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.50,0.51,0.52,0.53,0.54,0.55,0.56,0.57,0.58,0.59,0.60,0.61,0.62,0.63]}"
+        },
+        "url": "{{base_url}}/api/training/collect"
+      }
+    },
+    {
+      "name": "TC-03 End Session",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', () => pm.response.to.have.status(200));",
+              "pm.test('Message is ended', () => {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.message).to.eql('ended');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {"mode": "raw", "raw": "{\"session_id\": {{session_id}}}"},
+        "url": "{{base_url}}/api/session/end"
+      }
+    }
+  ]
+}
